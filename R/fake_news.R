@@ -1,6 +1,7 @@
 library(futile.logger)
 library(lambda.r)
 library(lambda.tools)
+library(Rtsne)
 
 #' Tokenize input strings
 tokenize <- function(x, xform=tolower) {
@@ -40,7 +41,8 @@ tf_idf <- function(m) {
 }
 
 cosine <- function(a,b) (a %*% b) / sqrt(a %*% a) / sqrt(b %*% b)
-  
+L1 <- function(a,b) sum((a-b))
+L2 <- function(a,b) sqrt(sum((a-b)^2))
 
 
 #' #examples
@@ -58,21 +60,40 @@ build_model(df, use.idf=TRUE) %:=% {
 #' @examples
 #' m <- build_model(df)
 #' d <- classify_label(1, m, cosine)
-classify_label(x, m, dist=cosine) %:=% {
-  n <- ncol(m) - 1
+classify_label <- function(x, m, n=1, dist=cosine) {
   d <- apply(m[,-x], 2, function(td) dist(m[,x], td))
-  sim <- which.min(d)
+  sim <- head(order(d, decreasing=TRUE), n)
   lab <- ifelse(sim > x, sim+1,sim)
-  flog.info("Found most similar at column %s with distance %s",lab,d[sim])
-  list(pred=m@label[lab], act=m@label[x])
+  flog.debug("[%s] Found most similar at column %s with distance %s",x,lab,d[sim])
+  c(pred=attr(m,'label')[lab], act=attr(m,'label')[x])
+}
+
+#' @examples
+#' m <- build_model(df[1:200,])
+#' ns <- get_neighbors(m)
+get_neighbors <- function(m, n=5, ...) {
+  t(sapply(1:ncol(m), function(i) classify_label(i,m,n, ...)))
+}
+
+
+#' @examples
+#' m <- build_model(df[1:200,])
+#' cm <- confusion_matrix(m)
+confusion_matrix <- function(m, ...) {
+  ds <- t(sapply(1:ncol(m), function(i) classify_label(i,m, ...)))
+  table(ds[,1], ds[,2])
 }
 
 
 plot_tsne(m) %:=% {
   m <- t(m)
   dup <- duplicated(m)
-  lab <- as.factor(m@label[!dup])
+  idx <- (1:nrow(m))[!dup]
+  col <- as.factor(m@label[!dup])
+  lab <- sprintf('%s:%s', idx,m@label[!dup])
   m1 <- m[!dup,]
   tsne <- Rtsne(m1)
-  plot(tsne$Y, col=lab)
+  plot(tsne$Y, col=col)
+  text(tsne$Y, labels=lab, pos=3, cex=.8)
 }
+
